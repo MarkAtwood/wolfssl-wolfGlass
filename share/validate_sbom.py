@@ -74,10 +74,12 @@ def main(argv):
         try:
             with open(path) as f:
                 d = json.load(f)
-        except FileNotFoundError:
-            fail(path, "file not found")
+        except OSError as e:
+            fail(path, f"cannot read file: {e}")
         except json.JSONDecodeError as e:
             fail(path, f"invalid JSON: {e}")
+        if not isinstance(d, dict):
+            fail(path, "top-level JSON is not an object")
         if "bomFormat" in d or path.endswith(".cdx.json"):
             validate_cyclonedx(path, d, args.name_prefix)
         elif "spdxVersion" in d or path.endswith(".spdx.json"):

@@ -41,7 +41,10 @@ import tempfile
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-_ABS_PATH = re.compile(r'^/[^ ]+')
+# Absolute path at the start of a token: a Unix path (/home/...) or a Windows
+# drive path (C:\Users\... or C:/Users/...).  Redacted so a host path never
+# leaks into the SBOM regardless of the build host OS.
+_ABS_PATH = re.compile(r'^([A-Za-z]:[\\/]|/)[^ ]*')
 _DEFINE = re.compile(r'^#define\s+(\S+)\s*(.*)$')
 
 
@@ -73,6 +76,11 @@ def scrub_defines(text):
 def read_version(version_file, version_macro):
     """Read a version string from a header, e.g. LIBWOLFBOOT_VERSION_STRING."""
     if not version_file or not os.path.isfile(version_file):
+        return ""
+    # An empty macro would make re.escape('') a zero-width prefix, so the pattern
+    # degrades to the first quoted string in the header (a copyright year, an
+    # unrelated define) -- return "" rather than a silently wrong version.
+    if not version_macro:
         return ""
     pat = re.compile(re.escape(version_macro) + r'\s*"([^"]*)"')
     with open(version_file, encoding="utf-8", errors="replace") as f:

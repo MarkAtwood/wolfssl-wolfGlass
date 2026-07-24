@@ -139,7 +139,15 @@ function(wolfglass_add_sbom)
         list(APPEND _cmd --gen-sbom ${SB_GEN_SBOM})
     endif()
 
-    add_custom_target(sbom
+    # The first call in a project owns the plain `sbom` target (the documented
+    # entry point); a second call (a project with two libraries needing separate
+    # SBOMs) would otherwise fail with "target already exists", so it gets a
+    # name-qualified target instead.
+    set(_sbom_target sbom)
+    if(TARGET sbom)
+        set(_sbom_target sbom-${SB_NAME})
+    endif()
+    add_custom_target(${_sbom_target}
         COMMAND ${_cmd}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         VERBATIM
