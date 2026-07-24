@@ -243,6 +243,35 @@ def derived_uuid(*parts):
     return str(uuid.uuid5(SBOM_UUID_NAMESPACE, '\x00'.join(parts)))
 
 
+def config_identity(lib_hash, license_id, build_props, enabled_deps,
+                    dep_versions):
+    """Stable digest of everything that distinguishes two builds of the same
+    package name+version: the artifact hash, the licence, the enabled build
+    macros, and the recorded dependencies and their resolved versions.
+
+    Folded into the SBOM serialNumber / SPDX documentNamespace so two different
+    build configurations of one release (FIPS vs non-FIPS, a different --srcs
+    set, a different feature-flag set) get distinct, SPDX-2.3-6.5-unique
+    identifiers -- while an identical configuration still reproduces the same
+    identifier byte-for-byte.  Tagged, NUL-delimited fields so no two distinct
+    configurations can serialize to the same bytes."""
+    h = hashlib.sha256()
+
+    def _field(tag, value):
+        h.update(tag.encode())
+        h.update(b'\0')
+        h.update((value or '').encode())
+        h.update(b'\0')
+
+    _field('lib_hash', lib_hash)
+    _field('license', license_id)
+    for k, v in sorted(build_props):
+        _field('prop', f'{k}={v}')
+    for key in sorted(enabled_deps):
+        _field('dep', f'{key}={dep_versions.get(key) or ""}')
+    return h.hexdigest()
+
+
 def build_timestamp():
     """Return (datetime, ISO-8601-Z string) honoring SOURCE_DATE_EPOCH.
     Reproducible Builds convention: if the env var is set to a valid
@@ -1756,8 +1785,16 @@ def main():
 
     dt, timestamp = build_timestamp()
     year = dt.year
-    serial = derived_uuid(args.name, args.version, 'serial')
-    doc_ns_uuid = derived_uuid(args.name, args.version, 'document')
+    # Fold the build configuration into the serialNumber / documentNamespace
+    # seed so two builds of the same name+version but different config (FIPS vs
+    # non-FIPS, different sources/flags/deps) do not collide -- SPDX 2.3 §6.5
+    # requires documentNamespace to be unique, and a CycloneDX version:1 with a
+    # shared serialNumber over differing content is self-contradictory.  An
+    # identical configuration still reproduces the same identifiers.
+    config_id = config_identity(lib_hash, license_id, build_props,
+                                enabled_deps, dep_version_overrides)
+    serial = derived_uuid(args.name, args.version, 'serial', config_id)
+    doc_ns_uuid = derived_uuid(args.name, args.version, 'document', config_id)
 
     cdx = generate_cdx(
         args.name, args.version, args.supplier,
