@@ -1435,6 +1435,27 @@ def _resolve_dep_versions(enabled_deps, overrides):
     return overrides
 
 
+def _enabled_deps(dep_flags):
+    """Return the enabled dependency keys, rejecting values outside {yes, no}.
+
+    Treating anything that is not 'yes' as 'no' loses a dependency silently.
+    A build fragment wiring `--dep-wolfssl=$(HAVE_WOLFSSL)` where the variable
+    expands to 1, true, on or Y would drop a CVE-bearing component from the
+    SBOM with no diagnostic, which is the one failure mode a CRA tool must
+    never have.  Fail loudly instead.
+    """
+    enabled = []
+    for key, flag_name, value in dep_flags:
+        normalized = (value or '').strip().lower()
+        if normalized not in ('yes', 'no'):
+            sys.exit(f"ERROR: {flag_name} expects 'yes' or 'no', got {value!r}. "
+                     f"A value outside that set would silently drop {key} from "
+                     f"the SBOM.")
+        if normalized == 'yes':
+            enabled.append(key)
+    return enabled
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Generate CycloneDX and SPDX SBOMs for wolfssl. '
@@ -1618,15 +1639,12 @@ def main():
                 "https://example.com/sbom/wolfssl-X.Y.Z.spdx.json or "
                 "urn:uuid:00000000-0000-0000-0000-000000000000.")
 
-    enabled_deps = [
-        key for key, flag in [
-            ('wolfssl',   args.dep_wolfssl),
-            ('wolfcrypt', args.dep_wolfcrypt),
-            ('openssl',   args.dep_openssl),
-            ('libz',      args.dep_libz),
-        ]
-        if flag.lower() == 'yes'
-    ]
+    enabled_deps = _enabled_deps([
+        ('wolfssl',   '--dep-wolfssl',   args.dep_wolfssl),
+        ('wolfcrypt', '--dep-wolfcrypt', args.dep_wolfcrypt),
+        ('openssl',   '--dep-openssl',   args.dep_openssl),
+        ('libz',      '--dep-libz',      args.dep_libz),
+    ])
     dep_version_overrides = _parse_dep_version_overrides(args.dep_version)
     # wolfcrypt has no pkg-config.  Inherit a version so the CPE/PURL are
     # not dropped: prefer an explicit --dep-version wolfcrypt=, else the
